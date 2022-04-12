@@ -43,6 +43,8 @@
 #include <stdlib.h>
 #include <time.h>
 #include <math.h>
+#include <vector>
+#include <chrono>
 
 
 //      Struct Process
@@ -51,7 +53,7 @@ struct process {
   float arrivalTime;
   float serviceTime;
   float remainingServiceTime;
-  int priority;
+  //int priority;
 };
 //      Struct Event
 struct event {
@@ -68,24 +70,27 @@ struct event {
 };
 
 //      Globals
-bool isIdle;
-int currTime = 0;
-int readyQueueCount = 0;
-event* eq_head;
+bool isIdle = true;
+float currTime;
+int readyQueueCount;
+event* eq_head = NULL;
 int numProcesses = 0;
 float avgTurnaround = 0;
-float totThroughput = 0;
+float totThroughput;
 float avgCpuUtil = 0;
 float avgNumProcs = 0;
 double serviceTime;
 int lambda;
 float x;
+std::vector<float> arrTimes;
+std::vector<float> serTimes;
+std::vector<int> rq;
 
 
 //      Schedule an Event
 void Schedule_event(std::string e_type, float t, event* head) {
-  std::cout << "Event Scheduled : " << numProcesses << std::endl;//debug
   event* e = new event(e_type,t);//create event
+  std::cout << "Event Scheduled : " << numProcesses << std::endl;//debug
   e->type = e_type;e->time = t;
   if (eq_head == NULL) { //queue is empty, put on front
     eq_head = e;
@@ -101,33 +106,44 @@ void Schedule_event(std::string e_type, float t, event* head) {
 void Init(int lambda) {
   std::cout << "Initializing..." << std::endl;
   x = rand()/RAND_MAX; //generate a number b/w 0 and 1
-  currTime = 0;
-  isIdle = true;
-  eq_head = NULL; //Event Queue Head
-  float t = currTime + (-(1/lambda)*log(x)); //Generate Interarrival time
-  Schedule_event("ARR",t,eq_head);
+  float t = (-(1/lambda)*log(x)); //Generate 1st Interarrival time
+  Schedule_event("ARR",currTime + t,eq_head);
+  readyQueueCount = 0;
 }
 //      Arrival Event Handler
 void Arr_handler(event* e) {
   if (isIdle == true) { //CPU available
+    std::cout << "CPU is idle" << std::endl;
     isIdle = false;
     float s = (-serviceTime) * log(((double)rand()/(double)RAND_MAX));
-    Schedule_event("DEP",currTime + s,e); //add to Event Queue
+    avgTurnaround = avgTurnaround + s;
+    Schedule_event("DEP",currTime + s,eq_head); //add to Event Queue
+    currTime = currTime + s;
+    float a = (-(1/lambda)*log(x));
+    //arrTimes.push_back(a);
+    Schedule_event("ARR",currTime + a,eq_head); //Create next Arrival
+    //rq.push_back(readyQueueCount);
   } else { //CPU not available
     readyQueueCount++;
+    std::cout << "CPU is not available" << std::endl;
     float a = (-(1/lambda)*log(x));
-    Schedule_event("ARR",currTime + a,e); //add to Event Queue
+    //arrTimes.push_back(a);
+    Schedule_event("ARR",currTime + a,eq_head); //add to Event Queue
+    currTime = currTime + a;
+    //avgNumProcs = avgNumProcs + readyQueueCount;
   } 
 }
 //      Departure Event Handler
 void Dep_handler(event* e) {
   numProcesses++;
-  if (readyQueueCount == 0) {
+  if (readyQueueCount == 0) {//No new procs
     isIdle = true;
-  } else {
+  } else {//New proc(s) avail
     readyQueueCount--;
     float s = (-serviceTime) * log(((double)rand()/(double)RAND_MAX));
-    Schedule_event("DEP",currTime + s,e);
+    avgTurnaround = avgTurnaround + s;
+    Schedule_event("DEP",currTime + s,eq_head);
+    currTime = currTime + s;
   }
 }
 //      Get Next Event From Queue
@@ -145,15 +161,16 @@ void Delete_event (event* e) {
 //      Run the Simulation
 void Run() { //run through all procs
   std::cout << "Running" << std::endl;
-  while (numProcesses <= 10000) {
+  while (numProcesses < 10000) {
     event* e = Get_next_event();
+    std::cout << "Current Time: "<< currTime<< std::endl;
     //record the time
     //record interval length
     //record states
-    currTime = currTime + (e->time);
+    //currTime = currTime + (e->time);
     if (e->type == "ARR") {
       std::cout << "arrival event" << std::endl;
-      //record arrival time
+      //arrTimes.push_back(e->p->arrivalTime);//record arrival time
       Arr_handler(e);
     } else if (e->type == "DEP") {
       std::cout << "departure event" << std::endl;
@@ -170,16 +187,23 @@ void Run() { //run through all procs
     //grabs second argument, average service time, and stores it as a double
     serviceTime = std::atof(argv[2]); //Average Service Time
     srand((unsigned)time(NULL)); //allows for rng
-
+    //currTime = 0;
+    auto startTime = std::chrono::high_resolution_clock::now();
     Init(lambda);
     Run();
+    auto endTime = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::seconds>(endTime - startTime);
 
+    avgTurnaround = avgTurnaround/10000;
+    totThroughput = 10000/currTime;
+    float idleTime = std::chrono::duration<float>(duration).count() - currTime;
+    avgCpuUtil = -(currTime/idleTime);
+    //avgNumProcs = avgNumProcs/10000;
     std::cout << "Discrete-Time Event Simulator (FCFS) for 10,000 processes with arrival rate of lambda = "  + std::to_string(lambda) + " and average service time of " +  std::to_string(serviceTime) + "\n";
   
     std::cout << "Average turnaround time: " + std::to_string(avgTurnaround) << std::endl;
     std::cout << "Total throughput: " + std::to_string(totThroughput) << std::endl;
     std::cout << "Average CPU utilization: " + std::to_string(avgCpuUtil) << std::endl;
-    std::cout << "Average number of processes in the Ready Queue: " + std::to_string(avgNumProcs) << std::endl;
+    std::cout << "Average number of processes in the Ready Queue: " + std::to_string(readyQueueCount) << std::endl;
     return 0;
   }
-//};
